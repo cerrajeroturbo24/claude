@@ -10,6 +10,9 @@ Variables de entorno:
   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN  credenciales
   SHEET_ID     id de la hoja (lo que va entre /d/ y /edit en su URL)
   SHEET_TAB    pestaña de la hoja (por defecto "Novedades")
+  FICHAS_TAB   pestaña opcional con columnas "zona" e "id" para poder
+               escribir nombres de zona en la columna "fichas" (por
+               defecto "Fichas")
   DRY_RUN      "1" para mostrar qué se publicaría sin publicar nada
 
 Uso:
@@ -74,21 +77,25 @@ def obtener_token():
 
 
 def listar_fichas(token):
-    """Devuelve {"locations/123": ("accounts/456", "Nombre de la ficha")}."""
-    fichas = {}
+    """Devuelve {"locations/123": ("accounts/456", "Nombre de la ficha")}
+    y {"locations/123": "dirección"}."""
+    fichas, direcciones = {}, {}
     cuentas = pedir(f"{ACCOUNTS_API}/accounts", token).get("accounts", [])
     for cuenta in cuentas:
         pagina = ""
         while True:
-            url = (f"{INFO_API}/{cuenta['name']}/locations?readMask=name,title"
+            url = (f"{INFO_API}/{cuenta['name']}/locations?readMask=name,title,storefrontAddress"
                    f"&pageSize=100&pageToken={pagina}")
             resp = pedir(url, token)
             for loc in resp.get("locations", []):
                 fichas[loc["name"]] = (cuenta["name"], loc.get("title", ""))
+                direcciones[loc["name"]] = ", ".join(
+                    loc.get("storefrontAddress", {}).get("addressLines", [])
+                    + [loc.get("storefrontAddress", {}).get("locality", "")]).strip(", ")
             pagina = resp.get("nextPageToken")
             if not pagina:
                 break
-    return fichas
+    return fichas, direcciones
 
 
 def leer_hoja(token, sheet_id, pestana):
@@ -109,6 +116,30 @@ def leer_hoja(token, sheet_id, pestana):
         novedad["_col_estado"] = chr(ord("A") + cabecera.index("estado"))
         novedades.append(novedad)
     return novedades
+
+
+def leer_zonas(token, sheet_id, pestana):
+    """Devuelve {"leganés": "locations/123"} desde la pestaña de fichas."""
+    rango = urllib.parse.quote(f"{pestana}!A1:C")
+    try:
+        filas = pedir(f"{SHEETS_API}/{sheet_id}/values/{rango}", token).get("values", [])
+    except RuntimeError as e:
+        if "Unable to parse range" in str(e):
+            return {}  # la pestaña no existe: solo se usarán ids
+        raise
+    if not filas:
+        return {}
+    cabecera = [c.strip().lower() for c in filas[0]]
+    if "zona" not in cabecera or "id" not in cabecera:
+        sys.exit(f"La pestaña {pestana} debe tener las columnas: zona, id")
+    zonas = {}
+    for fila in filas[1:]:
+        fila = fila + [""] * (len(cabecera) - len(fila))
+        zona = fila[cabecera.index("zona")].strip().lower()
+        ficha = fila[cabecera.index("id")].strip().removeprefix("locations/")
+        if zona and ficha:
+            zonas[zona] = f"locations/{ficha}"
+    return zonas
 
 
 def marcar_estado(token, sheet_id, pestana, novedad, estado):
@@ -147,13 +178,18 @@ def crear_publicacion(novedad):
     return post
 
 
-def destinos(novedad, fichas):
+def destinos(novedad, fichas, zonas):
     if not novedad["fichas"] or novedad["fichas"].upper() == "TODAS":
         return list(fichas)
     elegidas = []
     for f in novedad["fichas"].replace(";", ",").split(","):
         f = f.strip()
-        nombre = f if f.startswith("locations/") else f"locations/{f}"
+        if f.lower() in zonas:
+            nombre = zonas[f.lower()]
+        elif f.removeprefix("locations/").isdigit():
+            nombre = f"locations/{f.removeprefix('locations/')}"
+        else:
+            raise ValueError(f"zona '{f}' no está en la pestaña de fichas")
         if nombre not in fichas:
             raise ValueError(f"ficha '{f}' no encontrada en tu cuenta")
         elegidas.append(nombre)
@@ -162,16 +198,17 @@ def destinos(novedad, fichas):
 
 def main():
     token = obtener_token()
-    fichas = listar_fichas(token)
+    fichas, direcciones = listar_fichas(token)
 
     if len(sys.argv) > 1 and sys.argv[1] == "fichas":
         print(f"{len(fichas)} fichas encontradas:")
         for nombre, (_, titulo) in fichas.items():
-            print(f"  {nombre.removeprefix('locations/')}\t{titulo}")
+            print(f"  {nombre.removeprefix('locations/')}\t{titulo}\t{direcciones[nombre]}")
         return
 
     sheet_id = os.environ["SHEET_ID"]
     pestana = os.environ.get("SHEET_TAB") or "Novedades"
+    zonas = leer_zonas(token, sheet_id, os.environ.get("FICHAS_TAB") or "Fichas")
     dry_run = os.environ.get("DRY_RUN") == "1"
     hoy = datetime.date.today()
     errores = 0
@@ -181,7 +218,7 @@ def main():
             if not toca_publicar(novedad, hoy):
                 continue
             post = crear_publicacion(novedad)
-            objetivos = destinos(novedad, fichas)
+            objetivos = destinos(novedad, fichas, zonas)
         except ValueError as e:
             errores += 1
             print(f"Fila {novedad['_fila']}: {e}")

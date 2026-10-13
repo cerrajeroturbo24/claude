@@ -21,17 +21,43 @@ debe tener exactamente estas columnas:
 - **boton**: opcional. `LLAMAR`, `MAS_INFO`, `RESERVAR`, `PEDIR`, `COMPRAR` o
   `REGISTRARSE`.
 - **enlace**: la web a la que lleva el botón (no hace falta con `LLAMAR`).
-- **fichas**: `TODAS` (o vacío) para publicar en todas tus fichas, o los
-  números de las fichas separados por comas.
+- **fichas**: `TODAS` (o vacío) para publicar en todas tus fichas, o las
+  zonas separadas por comas (`Leganés, Chamberí`), tal como aparecen en la
+  pestaña **Fichas** (ver abajo). También vale el número de la ficha.
 - **estado**: **déjalo vacío**. El sistema escribe `publicado 2026-10-20` o el
   error. Si quieres volver a publicar una fila, borra su estado.
+
+### Pestaña Fichas
+
+Varias fichas tienen el mismo nombre (por ejemplo, "Cerrajero Turbo 24 horas"
+en Móstoles, Chamartín y Chamberí), así que el sistema las distingue por su
+número. Crea una segunda pestaña llamada **Fichas** con las columnas
+`zona | id | nombre` y rellena el `id` de cada zona una sola vez. Los números
+salen al lanzar el modo `fichas` (ver abajo).
+
+### Plantillas listas para importar
+
+- [`plantilla-fichas.csv`](plantilla-fichas.csv): las 8 fichas con el `id`
+  vacío, para que lo rellenes.
+- [`plantilla-novedades.csv`](plantilla-novedades.csv): 32 novedades, 4 por
+  ficha y una por semana, del 26 de octubre al 20 de noviembre de 2026.
+
+Para importarlas en Google Sheets: **Archivo → Importar → Subir**, elige el
+CSV y luego **Insertar hojas nuevas**. Después cambia el nombre de cada
+pestaña a `Novedades` y `Fichas`.
+
+**Ojo con las fechas:** la primera vez que funcione, se publican de golpe
+todas las novedades cuya fecha ya haya pasado. Si Google tarda en aprobar el
+acceso, mueve antes las fechas hacia delante. Revisa también que cada
+servicio anunciado se presta de verdad en esa zona.
 
 Para publicar en ese momento sin esperar a la mañana: en GitHub, ve a
 **Actions → Publicar novedades → Run workflow** y elige:
 
 - `publicar`: publica lo pendiente.
 - `prueba`: muestra lo que publicaría, pero sin publicar nada.
-- `fichas`: lista tus fichas con su número, para la columna `fichas`.
+- `fichas`: lista tus fichas con su número, nombre y dirección (así
+  distingues las que se llaman igual), para rellenar la pestaña `Fichas`.
 
 ## Configuración inicial (una sola vez)
 
